@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robot Hero — Three.js</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      /* Demo page background — canvas itself is transparent (alpha: true).
+         Swap this gradient for your own hero section background. */
+      background:
+        radial-gradient(ellipse at 30% 60%, #0a1628 0%, #060e1d 55%, #020810 100%);
+    }
+
+    canvas { display: block; }
+
+    /* Instruction hint */
+    #hint {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12px;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: rgba(120, 180, 255, 0.45);
+      pointer-events: none;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+
+<div id="hint">Move cursor to control head · Three.js</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three":          "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE          from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  RENDERER
+// ═══════════════════════════════════════════════════════════════════════════
+const renderer = new THREE.WebGLRenderer({
+  antialias:       true,
+  alpha:           true,           // transparent canvas
+  powerPreference: 'high-performance',
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000000, 0);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.35;
+renderer.outputColorSpace    = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SCENE & CAMERA
+// ═══════════════════════════════════════════════════════════════════════════
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(
+  45,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  100
+);
+camera.position.set(0, -0.2, 10);
+
+// PMREM environment map — gives metallic materials realistic reflections
+const pmrem      = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+pmrem.dispose();
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LIGHTING
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Cold ambient fill
+const ambientLight = new THREE.AmbientLight(0x1a2840, 8);
+scene.add(ambientLight);
+
+// Key light — bright white from top-front-right, casts shadows
+const keyLight = new THREE.DirectionalLight(0xffffff, 5);
+keyLight.position.set(4, 8, 5);
+keyLight.castShadow               = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.near       = 0.5;
+keyLight.shadow.camera.far        = 30;
+keyLight.shadow.camera.left       = -6;
+keyLight.shadow.camera.right      =  6;
+keyLight.shadow.camera.top        =  6;
+keyLight.shadow.camera.bottom     = -6;
+keyLight.shadow.camera.updateProjectionMatrix();
+scene.add(keyLight);
+
+// Rim light — electric blue from back-left
+const rimLight = new THREE.DirectionalLight(0x2244ff, 4.5);
+rimLight.position.set(-5, 3, -4);
+scene.add(rimLight);
+
+// Fill — cyan point, orbits slowly in the animation loop
+const fillLight = new THREE.PointLight(0x00aaff, 4, 15);
+fillLight.position.set(3, 2, 3);
+scene.add(fillLight);
+
+// Under-glow — teal wash from below
+const underLight = new THREE.PointLight(0x00ffaa, 2, 9);
+underLight.position.set(0, -5, 2);
+scene.add(underLight);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MATERIALS
+// ═══════════════════════════════════════════════════════════════════════════
+const M = {
+  body:    new THREE.MeshStandardMaterial({ color: 0x4a6fa5, metalness: 0.82, roughness: 0.22, envMapIntensity: 1.6 }),
+  bodyAlt: new THREE.MeshStandardMaterial({ color: 0x3a5a8a, metalness: 0.86, roughness: 0.18, envMapIntensity: 1.6 }),
+  dark:    new THREE.MeshStandardMaterial({ color: 0x0d1829, metalness: 0.95, roughness: 0.25, envMapIntensity: 1.0 }),
+  joint:   new THREE.MeshStandardMaterial({ color: 0x1c2d45, metalness: 0.95, roughness: 0.14, envMapIntensity: 1.2 }),
+  accent:  new THREE.MeshStandardMaterial({
+    color: 0x0088ff, metalness: 0.5, roughness: 0.12,
+    emissive: 0x003388, emissiveIntensity: 0.6,
+  }),
+  visor:   new THREE.MeshStandardMaterial({
+    color: 0x001a2e, metalness: 0.98, roughness: 0.02,
+    transparent: true, opacity: 0.92, envMapIntensity: 2.2,
+  }),
+};
+
+// Clone-able glowing emissive material
+function glowMat(hex) {
+  return new THREE.MeshStandardMaterial({
+    color: hex, emissive: hex, emissiveIntensity: 3.2,
+    roughness: 0.04, metalness: 0.1,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  GEOMETRY HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+function box(w, h, d, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.castShadow = m.receiveShadow = true;
+  return m;
+}
+function sph(r, mat, segs = 16) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, segs, segs), mat);
+  m.castShadow = true;
+  return m;
+}
+function cyl(rT, rB, h, mat, segs = 12) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rT, rB, h, segs), mat);
+  m.castShadow = true;
+  return m;
+}
+// Position helper — returns the mesh after positioning
+function at(mesh, x, y, z) { mesh.position.set(x, y, z); return mesh; }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ROBOT GROUP
+// ═══════════════════════════════════════════════════════════════════════════
+const robot = new THREE.Group();
+scene.add(robot);
+
+// ──────────────────────────────────────────────────────────────────────────
+//  TORSO   (y = 0, half-height ±0.95)
+// ──────────────────────────────────────────────────────────────────────────
+robot.add(at(box(1.5, 1.9, 1.0, M.body), 0, 0, 0));          // main torso
+
+// Side seam panels give depth / segmented-armor look
+robot.add(at(box(0.04, 1.72, 0.92, M.dark), -0.77, 0, 0));
+robot.add(at(box(0.04, 1.72, 0.92, M.dark),  0.77, 0, 0));
+
+// Chest panel
+robot.add(at(box(0.9, 0.85, 0.06, M.dark), 0, 0.15, 0.53));
+
+// Chest core — glowing sphere + local point light
+const mChestCore    = glowMat(0x00ccff);
+const chestCore     = at(sph(0.14, mChestCore, 12), 0, 0.25, 0.57);
+const chestPtLight  = new THREE.PointLight(0x00aaff, 2.5, 2.5);
+chestPtLight.position.set(0, 0.25, 0.9);
+robot.add(chestCore, chestPtLight);
+
+// Tech lines flanking the core
+robot.add(at(box(0.055, 0.56, 0.055, M.accent), -0.25, 0.15, 0.57));
+robot.add(at(box(0.055, 0.56, 0.055, M.accent),  0.25, 0.15, 0.57));
+robot.add(at(box(0.58,  0.055, 0.055, M.accent),  0.0, -0.22, 0.57));
+
+// Bottom torso edge trim
+robot.add(at(box(1.52, 0.08, 1.02, M.joint), 0, -0.95, 0));
+
+// ──────────────────────────────────────────────────────────────────────────
+//  WAIST   (y = -1.11)
+// ──────────────────────────────────────────────────────────────────────────
+robot.add(at(box(1.0, 0.32, 0.78, M.dark),   0, -1.11, 0));
+robot.add(at(box(1.05, 0.07, 0.82, M.accent), 0, -1.27, 0));
+
+// ──────────────────────────────────────────────────────────────────────────
+//  HIPS    (y = -1.55)
+// ──────────────────────────────────────────────────────────────────────────
+robot.add(at(box(1.4, 0.45, 0.88, M.bodyAlt), 0, -1.55, 0));
+
+// ──────────────────────────────────────────────────────────────────────────
+//  LEGS
+// ──────────────────────────────────────────────────────────────────────────
+const legsGroup = new THREE.Group();
+legsGroup.position.y = -1.55;
+robot.add(legsGroup);
+
+[-0.42, 0.42].forEach(x => {
+  const g = new THREE.Group();
+  g.position.x = x;
+  legsGroup.add(g);
+  g.add(
+    at(sph(0.24,  M.joint, 12),           0, -0.28,   0),   // hip sphere
+    at(cyl(0.24, 0.26, 0.82, M.bodyAlt),  0, -0.72,   0),   // upper leg
+    at(box(0.44, 0.18, 0.50, M.dark),     0, -1.15,   0),   // knee plate
+    at(sph(0.24,  M.joint, 12),           0, -1.15,   0),   // knee sphere
+    at(cyl(0.22, 0.20, 0.82, M.body),     0, -1.63,   0),   // lower leg
+    at(box(0.06, 0.50, 0.27, M.accent),   0, -1.63,   0.19),// shin stripe
+    at(sph(0.20,  M.joint, 10),           0, -2.06,   0),   // ankle
+    at(box(0.42, 0.22, 0.62, M.dark),     0, -2.26,   0.08),// foot
+    at(box(0.44, 0.055, 0.65, M.joint),   0, -2.375,  0.08),// sole
+  );
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+//  NECK    (y = 1.09)
+// ──────────────────────────────────────────────────────────────────────────
+robot.add(at(cyl(0.20, 0.22, 0.38, M.dark,  10), 0, 1.09, 0));
+robot.add(at(cyl(0.24, 0.24, 0.055, M.joint, 10), 0, 1.01, 0));
+robot.add(at(cyl(0.24, 0.24, 0.055, M.joint, 10), 0, 1.17, 0));
+
+// ──────────────────────────────────────────────────────────────────────────
+//  HEAD    (group pivot at y = 1.68)
+// ──────────────────────────────────────────────────────────────────────────
+const headGroup = new THREE.Group();
+headGroup.position.y = 1.68;
+robot.add(headGroup);
+
+// Skull
+headGroup.add(box(1.15, 1.05, 1.0, M.body));
+
+// Helmet ridges — top center + flanking
+headGroup.add(at(box(0.72, 0.10, 0.88, M.dark),   0,    0.575, 0));
+headGroup.add(at(box(0.13, 0.10, 0.90, M.joint), -0.30, 0.575, 0));
+headGroup.add(at(box(0.13, 0.10, 0.90, M.joint),  0.30, 0.575, 0));
+
+// Ear / side module plates
+[-0.62, 0.62].forEach(x => {
+  headGroup.add(at(box(0.13, 0.55, 0.72, M.dark),   x,             0.05, -0.02));
+  headGroup.add(at(box(0.05, 0.28, 0.22, M.accent),  x < 0 ? -0.65 : 0.65, 0.12, -0.02));
+});
+
+// Visor (dark, glossy pane)
+headGroup.add(at(box(0.88, 0.32, 0.06, M.visor), 0, 0.08, 0.51));
+
+// Glowing eyes
+const mEyeL = glowMat(0x00ffee);
+const mEyeR = glowMat(0x00ffee);
+const eyeL  = at(new THREE.Mesh(new THREE.SphereGeometry(0.10, 14, 10), mEyeL), -0.25, 0.08, 0.52);
+const eyeR  = at(new THREE.Mesh(new THREE.SphereGeometry(0.10, 14, 10), mEyeR),  0.25, 0.08, 0.52);
+const eyePL = new THREE.PointLight(0x00ffee, 1.6, 2.2);
+const eyePR = new THREE.PointLight(0x00ffee, 1.6, 2.2);
+eyePL.position.copy(eyeL.position);
+eyePR.position.copy(eyeR.position);
+headGroup.add(eyeL, eyeR, eyePL, eyePR);
+
+// Mouth grill bars
+for (let i = -2; i <= 2; i++)
+  headGroup.add(at(box(0.055, 0.13, 0.055, M.dark), i * 0.12, -0.30, 0.52));
+
+// Forehead accent strip
+headGroup.add(at(box(0.52, 0.04, 0.055, M.accent), 0, 0.34, 0.52));
+
+// Antenna pole + glowing tip
+headGroup.add(at(cyl(0.030, 0.035, 0.50, M.dark, 8), 0, 1.03, 0));
+const mAntenna    = glowMat(0x00ffee);
+const antennaBall = at(sph(0.085, mAntenna, 10), 0, 1.295, 0);
+headGroup.add(antennaBall);
+
+// ──────────────────────────────────────────────────────────────────────────
+//  ARMS
+// ──────────────────────────────────────────────────────────────────────────
+const leftArm  = new THREE.Group();
+const rightArm = new THREE.Group();
+leftArm.position.set(-0.98, 0.7, 0);
+rightArm.position.set( 0.98, 0.7, 0);
+robot.add(leftArm, rightArm);
+
+[leftArm, rightArm].forEach(ag => {
+  ag.add(
+    sph(0.30,  M.joint, 14),                             // shoulder sphere
+    at(cyl(0.22, 0.24, 0.90, M.bodyAlt),  0, -0.70, 0),  // upper arm
+    at(box(0.06, 0.52, 0.27, M.accent),   0, -0.70, 0.19),// front stripe
+    at(sph(0.22,  M.joint, 12),           0, -1.18, 0),  // elbow
+    at(cyl(0.19, 0.21, 0.82, M.body),     0, -1.70, 0),  // forearm
+    at(box(0.38, 0.36, 0.32, M.dark),     0, -2.24, 0),  // fist
+  );
+  // Knuckle detail rows
+  for (let k = 0; k < 3; k++)
+    ag.add(at(box(0.08, 0.055, 0.34, M.accent), (k - 1) * 0.105, -2.07, 0));
+});
+
+// Natural resting outward tilt
+leftArm.rotation.z  =  0.18;
+rightArm.rotation.z = -0.18;
+
+// ──────────────────────────────────────────────────────────────────────────
+//  FLOOR GLOW RING  (gives the impression of a lit platform)
+// ──────────────────────────────────────────────────────────────────────────
+const ringMat = new THREE.MeshBasicMaterial({
+  color: 0x0055ff, transparent: true, opacity: 0.12,
+  side: THREE.DoubleSide,
+});
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 2.2, 64), ringMat);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = -4.15;
+scene.add(ring);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════════════════════
+const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)
+               || window.innerWidth < 768;
+
+let mouseNX = 0;   // normalized -1 … +1
+let mouseNY = 0;
+let headRX  = 0;   // smoothed head rotation Y
+let headRY  = 0;   // smoothed head rotation X
+
+if (!isMobile) {
+  window.addEventListener('mousemove', e => {
+    mouseNX = (e.clientX / window.innerWidth  - 0.5) * 2;
+    mouseNY = (e.clientY / window.innerHeight - 0.5) * 2;
+  });
+  // Hide hint on desktop after first move
+  window.addEventListener('mousemove', () => {
+    document.getElementById('hint').style.opacity = '0';
+  }, { once: true });
+} else {
+  document.getElementById('hint').textContent = 'Three.js · Auto-animating';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  RESIZE
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ═══════════════════════════════════════════════════════════════════════════
+const clock = new THREE.Clock();
+const lerp  = (a, b, t) => a + (b - a) * t;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // ── Idle float: gentle vertical bob
+  robot.position.y = Math.sin(t * 1.1) * 0.13;
+
+  // ── Subtle body sway (Z) and slow 3D rotation (Y) for depth on desktop
+  robot.rotation.z = Math.sin(t * 0.65) * 0.025;
+  robot.rotation.y = Math.sin(t * 0.28) * 0.12;
+
+  // ── Head: cursor-tracking on desktop / auto sine on mobile
+  if (isMobile) {
+    headGroup.rotation.y = Math.sin(t * 0.50) * 0.45;
+    headGroup.rotation.x = Math.sin(t * 0.35) * 0.12;
+  } else {
+    // Lazy-lerp so the head "lags" behind the cursor organically
+    headRX = lerp(headRX, mouseNX *  0.55, 0.04);
+    headRY = lerp(headRY, mouseNY * -0.30, 0.04);
+    headGroup.rotation.y = headRX;
+    headGroup.rotation.x = headRY;
+  }
+
+  // ── Arm swing: opposite phase for natural gait feel
+  const swing = Math.sin(t * 0.85) * 0.22;
+  leftArm.rotation.x  =  swing;
+  rightArm.rotation.x = -swing;
+  leftArm.rotation.z  =  0.18 + Math.sin(t * 0.40) * 0.04;
+  rightArm.rotation.z = -0.18 - Math.sin(t * 0.40) * 0.04;
+
+  // ── Eye pulse  (0 → 1 → 0 …)
+  const pulse  = Math.sin(t * 2.8)       * 0.5 + 0.5;
+  const pulse2 = Math.sin(t * 3.2 + 1.0) * 0.5 + 0.5;  // offset phase
+
+  const eyeGlow = 2.5 + pulse * 2.8;
+  mEyeL.emissiveIntensity = eyeGlow;
+  mEyeR.emissiveIntensity = eyeGlow;
+  eyePL.intensity = 0.8 + pulse * 2.0;
+  eyePR.intensity = 0.8 + pulse * 2.0;
+
+  // ── Antenna pulse (slightly different cadence from eyes)
+  mAntenna.emissiveIntensity = 2.0 + pulse2 * 2.8;
+
+  // ── Chest core breathe
+  const chestPulse = Math.sin(t * 1.8) * 0.5 + 0.5;
+  mChestCore.emissiveIntensity = 1.5 + chestPulse * 1.2;
+  chestPtLight.intensity       = 2.0 + chestPulse * 1.2;
+
+  // ── Accent strips dim glow breathing
+  M.accent.emissiveIntensity = 0.35 + pulse * 0.35;
+
+  // ── Orbiting fill light — circles the robot on XZ plane
+  fillLight.position.x = Math.sin(t * 0.25) * 4.5;
+  fillLight.position.z = Math.cos(t * 0.25) * 4.5;
+
+  // ── Floor ring breathes with the eyes
+  ringMat.opacity = 0.07 + pulse * 0.11;
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
