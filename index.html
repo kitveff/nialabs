@@ -1286,6 +1286,88 @@
       .chat-side::after  { display: none; }
       .hero-chat  { max-width: 100%; height: min(420px, 75vw + 80px); }
     }
+
+    /* ─────────────────────────────────────────────
+       Hero Chat Animations
+    ───────────────────────────────────────────── */
+
+    /* Float animation for the chat card */
+    @keyframes chatFloat {
+      0%, 100% { transform: translateY(0px); }
+      50%       { transform: translateY(-9px); }
+    }
+
+    /* Glow pulse for the chat card border */
+    @keyframes chatGlow {
+      0%, 100% {
+        box-shadow:
+          0 12px 56px rgba(0,0,0,0.11),
+          0 2px 10px rgba(0,0,0,0.06),
+          inset 0 1px 0 rgba(255,255,255,0.9),
+          0 0 0 0 rgba(22,163,74,0);
+      }
+      50% {
+        box-shadow:
+          0 12px 56px rgba(0,0,0,0.14),
+          0 2px 10px rgba(0,0,0,0.08),
+          inset 0 1px 0 rgba(255,255,255,0.9),
+          0 0 32px 8px rgba(22,163,74,0.13);
+      }
+    }
+
+    .chat-floating {
+      animation:
+        chatFloat 5.2s ease-in-out infinite,
+        chatGlow  4.8s ease-in-out infinite;
+    }
+
+    /* Animated pulse rings around avatar */
+    .hc-avatar {
+      position: relative;
+    }
+    .hc-avatar::before,
+    .hc-avatar::after {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(22,163,74,0.5);
+      animation: avatarRing 2.8s ease-out infinite;
+      pointer-events: none;
+    }
+    .hc-avatar::after {
+      animation-delay: 1.4s;
+    }
+    @keyframes avatarRing {
+      0%   { transform: scale(1);   opacity: 0.7; }
+      100% { transform: scale(1.8); opacity: 0;   }
+    }
+
+    /* Header shine sweep on load */
+    .hc-head {
+      position: relative;
+      overflow: hidden;
+    }
+    .hc-head::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        105deg,
+        transparent 35%,
+        rgba(255,255,255,0.55) 50%,
+        transparent 65%
+      );
+      transform: translateX(-100%);
+      pointer-events: none;
+    }
+    .hc-head.shine-done::after {
+      animation: headerShine 0.75s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+    @keyframes headerShine {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(200%);  }
+    }
   </style>
 </head>
 
@@ -1461,6 +1543,41 @@ function updateNavbar() {
 window.addEventListener('scroll', updateNavbar, { passive: true });
 window.addEventListener('resize', updateNavbar, { passive: true });
 updateNavbar();
+
+
+/* ── Hero Chat: entrance + float animation ── */
+(function initHeroChat() {
+  const chat = document.getElementById('hero-chat');
+  const head = chat ? chat.querySelector('.hc-head') : null;
+  if (!chat) return;
+
+  // Start hidden
+  chat.style.opacity = '0';
+  chat.style.transform = 'translateY(44px) scale(0.96)';
+
+  // Trigger entrance after a short delay (let hero render first)
+  const enterDelay = 550;
+  setTimeout(function() {
+    chat.style.transition =
+      'opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1), ' +
+      'transform 0.75s cubic-bezier(0.22, 1, 0.36, 1)';
+    chat.style.opacity = '1';
+    chat.style.transform = 'translateY(0) scale(1)';
+
+    // After entrance completes, switch to CSS float animation
+    setTimeout(function() {
+      chat.style.transition = '';
+      chat.style.transform  = '';
+      chat.style.opacity    = '';
+      chat.classList.add('chat-floating');
+
+      // Header shine sweep
+      if (head) {
+        head.classList.add('shine-done');
+      }
+    }, 800);
+  }, enterDelay);
+})();
 
 
 /* ── Hero headline: staggered word reveal ── */
