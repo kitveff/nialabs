@@ -2,6 +2,8 @@
 
 Premium single-page landing for **Nia Labs**, an AI automation agency by Глеб Давыдов.
 
+**Live:** https://kitveff.github.io/nialabs/
+
 ---
 
 ## Preview
