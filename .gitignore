@@ -1,11 +1,11 @@
-# OS
 .DS_Store
-Thumbs.db
-
-# Editor
-.vscode/
-.idea/
-
-# Working notes
-link.txt
-particle-source.txt
+.playwright-mcp/
+*.png
+*.jpg
+*.webp
+splite-chat.html
+card.tsx
+demo.tsx
+splite.tsx
+spotlight.tsx
+component
